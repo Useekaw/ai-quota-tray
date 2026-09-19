@@ -5,6 +5,13 @@ Copilot quota at a glance, with a detailed popup on click — the Windows
 counterpart to the [DankMaterialShell](https://github.com/AvengeMedia/DankMaterialShell)
 `aiOverviewControl` plugin's "AI Usage Control" widget.
 
+Both the Codex and Copilot data sources here — the `codex app-server`
+JSON-RPC calls and the GitHub `copilot_internal/user` endpoint — were sourced
+from, and are a direct port of the provider logic in,
+[bernardopg/AiOverviewControl](https://github.com/bernardopg/AiOverviewControl),
+the DankMaterialShell plugin this app mirrors. All credit for figuring out
+those integrations goes there.
+
 ## What it shows
 
 - **Codex**: session (5h) and weekly rate-limit usage, read straight from the
@@ -74,3 +81,8 @@ src/AiQuotaTray/
 
 - [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
 - English for code, comments, and docs.
+- See [AGENTS.md](AGENTS.md) if you're an AI coding agent working in this repo.
+
+## License
+
+[MIT](LICENSE)
