@@ -6,28 +6,22 @@ namespace AiQuotaTray.Ui;
 /// <summary>
 /// Borderless flyout showing a detailed breakdown for every provider, opened
 /// next to the tray icon. Styled to match native Windows 11 flyouts (Volume,
-/// Wi-Fi, Battery): DWM-rounded corners, dark/light theme colors read from
-/// the registry, and a best-effort acrylic backdrop.
+/// Wi-Fi, Battery): DWM-rounded corners and dark/light theme colors read
+/// from the registry.
 /// </summary>
 internal sealed class UsageDetailsForm : Form
 {
-    private const int FlyoutWidth = 340;
-    private const int ContentPadding = 16;
-
-    // Quick escape hatch: acrylic-over-WinForms is inherently a bit of a hack
-    // (transparency-key compositing, not a first-class WinForms feature) and
-    // this was never run on a real Windows 11 box during development. If it
-    // ever renders oddly on some GPU/driver combination, this environment
-    // variable falls back to the always-correct flat themed background
-    // without needing a code change.
-    private static readonly bool AcrylicDisabledByUser =
-        Environment.GetEnvironmentVariable("AIQUOTATRAY_DISABLE_ACRYLIC") == "1";
+    // Sizing is scaled ~1.5x over the original design (flat 9pt / 340px felt
+    // cramped in practice) — kept as one multiplier so it stays proportional
+    // if it needs tuning again.
+    private const float UiScale = 1.5f;
+    private const int FlyoutWidth = (int)(340 * UiScale);
+    private const int ContentPadding = (int)(16 * UiScale);
 
     private static readonly string UiFontFamily = ResolveUiFontFamily();
 
     private readonly FlowLayoutPanel _root;
     private ThemePalette _palette = ThemePalette.Resolve();
-    private bool _acrylicActive;
 
     public UsageDetailsForm()
     {
@@ -66,26 +60,8 @@ internal sealed class UsageDetailsForm : Form
     {
         _palette = ThemePalette.Resolve();
         Win11Window.ApplyFlyoutChrome(Handle, _palette.IsDark);
-
-        _acrylicActive = !AcrylicDisabledByUser && Win11Window.TryApplyAcrylicBackdrop(Handle);
-        if (_acrylicActive)
-        {
-            // The classic "glass sheet" trick: DWM only composites the acrylic
-            // material through pixels matching TransparencyKey, so the form and
-            // every non-drawing child control paint in that exact key color
-            // (or literally Color.Transparent, which WinForms resolves back to
-            // whatever the parent last painted — ending up as the same key).
-            var glassKey = Color.FromArgb(1, 1, 2);
-            BackColor = glassKey;
-            TransparencyKey = glassKey;
-        }
-        else
-        {
-            BackColor = _palette.WindowBackground;
-            TransparencyKey = Color.Empty;
-        }
-
-        _root.BackColor = _acrylicActive ? Color.Transparent : _palette.WindowBackground;
+        BackColor = _palette.WindowBackground;
+        _root.BackColor = Color.Transparent;
     }
 
     private void DrawBorder(Graphics g)
@@ -100,12 +76,12 @@ internal sealed class UsageDetailsForm : Form
         _root.Controls.Clear();
 
         _root.Controls.Add(Label("AI Quota", bold: true, sizeDelta: 3));
-        _root.Controls.Add(Spacer(8));
+        _root.Controls.Add(Spacer(12));
 
         foreach (var result in results)
         {
             RenderProvider(result);
-            _root.Controls.Add(Spacer(14));
+            _root.Controls.Add(Spacer(21));
         }
 
         _root.Controls.Add(Label($"Last checked {DateTime.Now:HH:mm:ss}", color: _palette.TextSecondary, sizeDelta: -1));
@@ -121,7 +97,7 @@ internal sealed class UsageDetailsForm : Form
 
         if (!result.Success)
         {
-            _root.Controls.Add(Spacer(2));
+            _root.Controls.Add(Spacer(3));
             _root.Controls.Add(Label(result.ErrorMessage ?? "Unknown error", color: Color.FromArgb(224, 90, 90)));
             return;
         }
@@ -137,7 +113,7 @@ internal sealed class UsageDetailsForm : Form
             {
                 continue;
             }
-            _root.Controls.Add(Spacer(8));
+            _root.Controls.Add(Spacer(12));
             _root.Controls.Add(WindowRow(window));
         }
     }
@@ -165,10 +141,11 @@ internal sealed class UsageDetailsForm : Form
         var bar = new UsageBar
         {
             Width = contentWidth,
+            Height = (int)(6 * UiScale),
             Percent = window.UsedPercent,
             FillColor = ColorFor(window.UsedPercent),
             TrackColor = _palette.BarTrack,
-            Margin = new Padding(0, 4, 0, 4),
+            Margin = new Padding(0, (int)(4 * UiScale), 0, (int)(4 * UiScale)),
         };
         panel.SetColumnSpan(bar, 2);
         panel.Controls.Add(bar, 0, 1);
@@ -218,13 +195,9 @@ internal sealed class UsageDetailsForm : Form
         Text = text,
         AutoSize = true,
         MaximumSize = new Size(FlyoutWidth - (ContentPadding * 2), 0),
-        Font = new Font(UiFontFamily, 9f + sizeDelta, bold ? FontStyle.Bold : FontStyle.Regular),
+        Font = new Font(UiFontFamily, (9f + sizeDelta) * UiScale, bold ? FontStyle.Bold : FontStyle.Regular),
         ForeColor = color ?? _palette.TextPrimary,
         BackColor = Color.Transparent,
-        // Simulated-transparent labels lose ClearType's assumption of a solid
-        // background; GDI+ antialiasing looks correct over the acrylic/glass-key
-        // background where ClearType would otherwise fringe.
-        UseCompatibleTextRendering = _acrylicActive,
         TextAlign = align,
         Margin = Padding.Empty,
     };

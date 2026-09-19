@@ -100,25 +100,22 @@ that alone when adding a new provider, fix at the source.
 ### Win11 flyout chrome gotchas (`UsageDetailsForm`, `Win11Window`)
 
 - Rounded corners and the dark-mode-aware frame use `DwmSetWindowAttribute`
-  (`DWMWA_WINDOW_CORNER_PREFERENCE`, `DWMWA_USE_IMMERSIVE_DARK_MODE`) —
-  low-risk, well-established APIs.
-- The acrylic backdrop (`DWMWA_SYSTEMBACKDROP_TYPE` + `DwmExtendFrameIntoClientArea`
-  + a `TransparencyKey`/glass-sheet trick) is a genuine hack: WinForms has no
-  first-class support for DWM backdrop materials, and **this was never
-  verified against a real Windows 11 box during development** (dev happens on
-  Linux; the person testing it doesn't necessarily have time to eyeball every
-  visual detail). If it ever misrenders, set
-  `AIQUOTATRAY_DISABLE_ACRYLIC=1` for an instant, always-correct fallback to
-  the flat themed background — don't first assume the rounded-corners/dark-mode
-  parts are also broken, they're independent and much safer.
-- `Win11Window.TryApplyAcrylicBackdrop` only returns `true` when DWM actually
-  accepted the request. Never set `TransparencyKey` based on anything else —
-  an unapplied backdrop with a transparency key still set renders as a literal
-  hole into the desktop, not a graceful fallback.
-- Any child control drawn under acrylic must have `BackColor = Color.Transparent`
-  (or draw nothing outside its actual content, like `UsageBar`) — an opaque
-  control background would show as a solid colored patch floating on the
-  blurred backdrop instead of blending in.
+  (`DWMWA_WINDOW_CORNER_PREFERENCE`, `DWMWA_USE_IMMERSIVE_DARK_MODE`).
+  Low-risk, well-established, confirmed working on real hardware.
+- An acrylic/Mica backdrop (`DWMWA_SYSTEMBACKDROP_TYPE` + `TransparencyKey`
+  glass-sheet trick) was tried and **removed** — on real Windows 11 it
+  rendered as a very light gray regardless of the dark-mode flag, making
+  `TextSecondary` nearly unreadable. WinForms has no first-class DWM backdrop
+  support, so this class of hack is a plausible thing to reach for again;
+  don't, without a way to actually verify it on hardware first (dev happens
+  on Linux). Flat theme colors from `ThemePalette` are the reliable choice.
+- A custom `Control` subclass (like `UsageBar`) needs
+  `ControlStyles.SupportsTransparentBackColor` set before `BackColor =
+  Color.Transparent` will even take — without it, the constructor throws
+  `ArgumentException` at runtime, not compile time. `Panel`/`Label` support
+  it natively; a bare `Control` does not. This crashed the whole popup once
+  (alpha.6 → alpha.7 fix); Serilog's `Application.ThreadException` hook is
+  what surfaced it instead of a silently-dead popup.
 
 ## Conventions
 
