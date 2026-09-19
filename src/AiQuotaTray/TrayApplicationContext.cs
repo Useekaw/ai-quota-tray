@@ -38,7 +38,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _notifyIcon = new NotifyIcon
         {
-            Icon = TrayIconRenderer.Render(null, null),
+            Icon = TrayIconRenderer.Render(null, null, null),
             Text = "AI Quota Tray — checking…",
             Visible = true,
             ContextMenuStrip = menu,
@@ -113,27 +113,24 @@ internal sealed class TrayApplicationContext : ApplicationContext
         var codex = results.FirstOrDefault(r => r.Provider == "codex");
         var copilot = results.FirstOrDefault(r => r.Provider == "copilot");
 
-        var codexPercent = HighestPercent(codex);
-        var copilotPercent = HighestPercent(copilot);
+        var codexSessionPercent = WindowPercent(codex, r => r.Primary);
+        var codexWeeklyPercent = WindowPercent(codex, r => r.Secondary);
+        var copilotPercent = WindowPercent(copilot, r => r.Primary);
 
         var oldIcon = _notifyIcon.Icon;
-        _notifyIcon.Icon = TrayIconRenderer.Render(codexPercent, copilotPercent);
+        _notifyIcon.Icon = TrayIconRenderer.Render(codexSessionPercent, codexWeeklyPercent, copilotPercent);
         oldIcon?.Dispose();
 
         _notifyIcon.Text = Truncate(BuildTooltip(codex, copilot), 127);
     }
 
-    private static double? HighestPercent(UsageResult? result)
+    private static double? WindowPercent(UsageResult? result, Func<UsageResult, UsageWindow?> select)
     {
         if (result is null || !result.Success)
         {
             return null;
         }
-        return new[] { result.Primary?.UsedPercent, result.Secondary?.UsedPercent, result.Tertiary?.UsedPercent }
-            .Where(v => v is not null)
-            .Select(v => v!.Value)
-            .DefaultIfEmpty(0)
-            .Max();
+        return select(result)?.UsedPercent;
     }
 
     private static string BuildTooltip(UsageResult? codex, UsageResult? copilot)
