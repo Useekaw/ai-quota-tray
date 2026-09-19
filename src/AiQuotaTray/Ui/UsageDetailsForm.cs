@@ -1,4 +1,5 @@
 using System.Drawing.Text;
+using System.Runtime.InteropServices;
 using AiQuotaTray.Usage;
 
 namespace AiQuotaTray.Ui;
@@ -49,6 +50,21 @@ internal sealed class UsageDetailsForm : Form
         Paint += (_, e) => DrawBorder(e.Graphics);
     }
 
+    // Composites all child-control painting off-screen before blitting to the
+    // window — without this, tearing down and rebuilding the label/bar tree
+    // on every refresh (see Render) is visible as a brief blink even with
+    // WM_SETREDRAW suppression on the form itself.
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            const int WsExComposited = 0x02000000;
+            var cp = base.CreateParams;
+            cp.ExStyle |= WsExComposited;
+            return cp;
+        }
+    }
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
@@ -72,24 +88,51 @@ internal sealed class UsageDetailsForm : Form
 
     public void Render(IReadOnlyList<UsageResult> results)
     {
-        _root.SuspendLayout();
-        _root.Controls.Clear();
-
-        _root.Controls.Add(Label("AI Quota", bold: true, sizeDelta: 3));
-        _root.Controls.Add(Spacer(12));
-
-        foreach (var result in results)
+        // Rebuilding the control tree while the popup is on-screen (a
+        // background refresh landing while it's open) is otherwise visible as
+        // a single blink: the old controls disappear on Clear(), then the new
+        // ones paint in on the next frame. WM_SETREDRAW makes both happen
+        // inside one suppressed frame instead.
+        var suspendRedraw = Visible && IsHandleCreated;
+        if (suspendRedraw)
         {
-            RenderProvider(result);
-            _root.Controls.Add(Spacer(21));
+            SendMessage(Handle, WmSetRedraw, false, IntPtr.Zero);
         }
 
-        _root.Controls.Add(Label($"Last checked {DateTime.Now:HH:mm:ss}", color: _palette.TextSecondary, sizeDelta: -1));
+        try
+        {
+            _root.SuspendLayout();
+            _root.Controls.Clear();
 
-        _root.ResumeLayout(true);
-        Height = _root.PreferredSize.Height;
-        Invalidate();
+            _root.Controls.Add(Label("AI Quota", bold: true, sizeDelta: 3));
+            _root.Controls.Add(Spacer(12));
+
+            foreach (var result in results)
+            {
+                RenderProvider(result);
+                _root.Controls.Add(Spacer(21));
+            }
+
+            _root.Controls.Add(Label($"Last checked {DateTime.Now:HH:mm:ss}", color: _palette.TextSecondary, sizeDelta: -1));
+
+            _root.ResumeLayout(true);
+            Height = _root.PreferredSize.Height;
+        }
+        finally
+        {
+            if (suspendRedraw)
+            {
+                SendMessage(Handle, WmSetRedraw, true, IntPtr.Zero);
+            }
+        }
+
+        Invalidate(true);
     }
+
+    private const int WmSetRedraw = 0x000B;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, bool wParam, IntPtr lParam);
 
     private void RenderProvider(UsageResult result)
     {
