@@ -120,6 +120,13 @@ internal sealed class UsageDetailsForm : Form
                 }
             }
 
+            // A trailing Spacer, not just _root.Padding.Bottom: an AutoSize
+            // FlowLayoutPanel's PreferredSize has been observed not to include
+            // its own bottom padding when the last child is a TableLayoutPanel
+            // (WindowRow) — the popup ended up with no visible bottom margin at
+            // all. A real flowed control's height is always counted.
+            _root.Controls.Add(Spacer(ContentPadding));
+
             _root.ResumeLayout(true);
             Height = _root.PreferredSize.Height;
         }
@@ -183,7 +190,8 @@ internal sealed class UsageDetailsForm : Form
 
         panel.Controls.Add(Label("AI Quota", bold: true, sizeDelta: 3), 0, 0);
         panel.Controls.Add(
-            Label($"Last checked {DateTime.Now:HH:mm}", color: _palette.TextSecondary, sizeDelta: -2, align: ContentAlignment.MiddleRight),
+            Label($"Last checked {DateTime.Now:HH:mm}", color: _palette.TextSecondary, sizeDelta: -2,
+                align: ContentAlignment.MiddleRight, anchor: AnchorStyles.Top | AnchorStyles.Right),
             1, 0);
 
         return panel;
@@ -215,7 +223,9 @@ internal sealed class UsageDetailsForm : Form
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
 
         panel.Controls.Add(Label(window.ResetDescription), 0, 0);
-        panel.Controls.Add(Label($"{window.UsedPercent:0}%", align: ContentAlignment.MiddleRight), 1, 0);
+        panel.Controls.Add(
+            Label($"{window.UsedPercent:0}%", align: ContentAlignment.MiddleRight, anchor: AnchorStyles.Top | AnchorStyles.Right),
+            1, 0);
 
         var bar = new UsageBar
         {
@@ -269,7 +279,7 @@ internal sealed class UsageDetailsForm : Form
         _ => provider,
     };
 
-    private Label Label(string text, bool bold = false, Color? color = null, int sizeDelta = 0, ContentAlignment align = ContentAlignment.MiddleLeft) => new()
+    private Label Label(string text, bool bold = false, Color? color = null, int sizeDelta = 0, ContentAlignment align = ContentAlignment.MiddleLeft, AnchorStyles? anchor = null) => new()
     {
         Text = text,
         AutoSize = true,
@@ -278,6 +288,10 @@ internal sealed class UsageDetailsForm : Form
         ForeColor = color ?? _palette.TextPrimary,
         BackColor = Color.Transparent,
         TextAlign = align,
+        // AutoSize shrinks the label to its text, so inside a TableLayoutPanel
+        // cell TextAlign alone can't push it to the cell's right edge — an
+        // explicit Anchor is what actually moves the control, not just its text.
+        Anchor = anchor ?? (AnchorStyles.Top | AnchorStyles.Left),
         Margin = Padding.Empty,
     };
 
