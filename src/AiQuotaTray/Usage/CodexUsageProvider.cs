@@ -199,7 +199,6 @@ public sealed class CodexUsageProvider : IUsageProvider
             await process.StandardInput.WriteLineAsync(request.AsMemory(), cancellationToken).ConfigureAwait(false);
         }
         await process.StandardInput.FlushAsync(cancellationToken).ConfigureAwait(false);
-        process.StandardInput.Close();
 
         JsonNode? account = null;
         JsonNode? limits = null;
@@ -254,6 +253,19 @@ public sealed class CodexUsageProvider : IUsageProvider
         catch (OperationCanceledException)
         {
             rawLines.AppendLine("(timed out waiting for a response)");
+        }
+
+        // Only close stdin now — codex app-server exits as soon as it sees EOF on
+        // its input, even if it hasn't answered every queued request yet. Closing
+        // this earlier (right after writing) starved account/read and
+        // account/rateLimits/read of a response before they were ever handled.
+        try
+        {
+            process.StandardInput.Close();
+        }
+        catch
+        {
+            // Process may already have exited.
         }
 
         await StopProcessAsync(process).ConfigureAwait(false);
