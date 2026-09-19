@@ -19,7 +19,8 @@ internal sealed class UsageBar : Control
             ControlStyles.AllPaintingInWmPaint
             | ControlStyles.UserPaint
             | ControlStyles.OptimizedDoubleBuffer
-            | ControlStyles.ResizeRedraw,
+            | ControlStyles.ResizeRedraw
+            | ControlStyles.SupportsTransparentBackColor,
             true);
         Height = 6;
         BackColor = Color.Transparent;
