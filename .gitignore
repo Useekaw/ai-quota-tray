@@ -1,0 +1,15 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+
+## Publish output
+publish/
+
+## Rider / VS Code
+.idea/
+.vscode/
+
+## OS cruft
+.DS_Store
