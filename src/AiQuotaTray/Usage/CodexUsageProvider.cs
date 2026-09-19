@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Serilog;
 
 namespace AiQuotaTray.Usage;
 
@@ -12,6 +14,7 @@ namespace AiQuotaTray.Usage;
 /// </summary>
 public sealed class CodexUsageProvider : IUsageProvider
 {
+    private static readonly ILogger Logger = Log.ForContext<CodexUsageProvider>();
     private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(3);
     private const int MaxAttempts = 2;
@@ -20,12 +23,20 @@ public sealed class CodexUsageProvider : IUsageProvider
 
     public async Task<UsageResult> GetUsageAsync(CancellationToken cancellationToken)
     {
+        var codexPath = await ResolveCodexPathAsync(cancellationToken).ConfigureAwait(false);
+        Logger.Debug("where codex -> {CodexPath}", codexPath ?? "(not found)");
+
+        if (codexPath is null)
+        {
+            return UsageResult.Failure(ProviderId, "codex-app-server", "Codex CLI is not installed or is not available in PATH.");
+        }
+
         RpcSession session = new(null, null, null, false, string.Empty);
         try
         {
             for (var attempt = 1; attempt <= MaxAttempts; attempt++)
             {
-                session = await RunAppServerAsync(cancellationToken).ConfigureAwait(false);
+                session = await RunAppServerAsync(codexPath, attempt, cancellationToken).ConfigureAwait(false);
 
                 // A cold `codex app-server` runs a marketplace refresh before it answers
                 // anything; that can outlast one attempt's timeout. Only retry when we
@@ -39,24 +50,16 @@ public sealed class CodexUsageProvider : IUsageProvider
         }
         catch (Exception ex)
         {
+            Logger.Error(ex, "codex app-server run failed");
             return UsageResult.Failure(ProviderId, "codex-app-server", ex.Message);
         }
 
         if (session.Limits is null || session.Limits["rateLimits"] is null)
         {
-            var missingCli = session.StdErr.Contains("not recognized", StringComparison.OrdinalIgnoreCase)
-                || session.StdErr.Contains("No such file", StringComparison.OrdinalIgnoreCase)
-                || session.StdErr.Contains("cannot find the file", StringComparison.OrdinalIgnoreCase);
-
-            if (missingCli)
-            {
-                return UsageResult.Failure(ProviderId, "codex-app-server", "Codex CLI is not installed or is not available in PATH.");
-            }
-
             if (!session.AccountResponded)
             {
                 return UsageResult.Failure(ProviderId, "codex-app-server",
-                    "Codex app-server did not respond in time (a cold start can be slow — this usually clears up on the next refresh).");
+                    "Codex app-server did not send an account/read response. See the diagnostics log (tray menu) for the raw output.");
             }
 
             if (session.Account is null)
@@ -125,24 +128,57 @@ public sealed class CodexUsageProvider : IUsageProvider
 
     private static string Counted(int count, string unit) => $"{count} {unit}{(count == 1 ? "" : "s")}";
 
-    private static async Task<RpcSession> RunAppServerAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Resolves the exact executable/script `codex` refers to via the real
+    /// <c>where.exe</c>, instead of guessing — this is also what tells us
+    /// whether to exec it directly or route it through cmd.exe (see below).
+    /// </summary>
+    private static async Task<string?> ResolveCodexPathAsync(CancellationToken cancellationToken)
     {
-        using var process = new Process
+        try
         {
-            StartInfo = new ProcessStartInfo
+            using var process = new Process
             {
-                FileName = "cmd.exe",
-                // Routed through cmd.exe so PATH/PATHEXT resolution finds codex.cmd
-                // (npm global installs) as well as a standalone codex.exe.
-                Arguments = "/d /c codex app-server",
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            },
-        };
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "where.exe",
+                    ArgumentList = { "codex" },
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                },
+            };
+            process.Start();
 
+            var output = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            using var exitCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await process.WaitForExitAsync(exitCts.Token).ConfigureAwait(false);
+
+            if (process.ExitCode != 0)
+            {
+                return null;
+            }
+
+            // `where` can list several matches (e.g. both codex.cmd and codex.ps1); the
+            // first line is the one PATHEXT/cmd.exe would actually run.
+            return output
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static async Task<RpcSession> RunAppServerAsync(string codexPath, int attempt, CancellationToken cancellationToken)
+    {
+        var startInfo = BuildStartInfo(codexPath);
+        Logger.Debug("Launching codex app-server, attempt {Attempt}: {FileName} {Arguments}",
+            attempt, startInfo.FileName, startInfo.Arguments);
+
+        using var process = new Process { StartInfo = startInfo };
         process.Start();
 
         var stdErrTask = process.StandardError.ReadToEndAsync(cancellationToken);
@@ -170,6 +206,7 @@ public sealed class CodexUsageProvider : IUsageProvider
         JsonNode? limitError = null;
         var accountSeen = false;
         var limitsSeen = false;
+        var rawLines = new StringBuilder();
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(ResponseTimeout);
@@ -181,8 +218,10 @@ public sealed class CodexUsageProvider : IUsageProvider
                 var line = await process.StandardOutput.ReadLineAsync(timeoutCts.Token).ConfigureAwait(false);
                 if (line is null)
                 {
+                    rawLines.AppendLine("(stdout closed)");
                     break;
                 }
+                rawLines.AppendLine(line);
                 if (string.IsNullOrWhiteSpace(line))
                 {
                     continue;
@@ -214,14 +253,56 @@ public sealed class CodexUsageProvider : IUsageProvider
         }
         catch (OperationCanceledException)
         {
-            // No response within the timeout; fall through with whatever we collected.
+            rawLines.AppendLine("(timed out waiting for a response)");
         }
 
         await StopProcessAsync(process).ConfigureAwait(false);
 
         var stdErr = await SafeReadStdErrAsync(stdErrTask).ConfigureAwait(false);
+        Logger.Debug("codex app-server stdout:\n{Stdout}", rawLines.Length > 0 ? rawLines.ToString() : "(no output)");
+        if (!string.IsNullOrWhiteSpace(stdErr))
+        {
+            Logger.Warning("codex app-server stderr:\n{Stderr}", stdErr);
+        }
 
         return new RpcSession(account, limits, limitError, accountSeen, stdErr);
+    }
+
+    /// <summary>
+    /// `where codex` may resolve to a real .exe or to an npm-style .cmd/.ps1
+    /// shim. A .exe can be launched directly — one less process hop between
+    /// us and its stdio. A script still needs cmd.exe to interpret it.
+    /// </summary>
+    private static ProcessStartInfo BuildStartInfo(string codexPath)
+    {
+        var isDirectlyExecutable = codexPath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            || codexPath.EndsWith(".com", StringComparison.OrdinalIgnoreCase);
+
+        if (isDirectlyExecutable)
+        {
+            var info = new ProcessStartInfo
+            {
+                FileName = codexPath,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            info.ArgumentList.Add("app-server");
+            return info;
+        }
+
+        return new ProcessStartInfo
+        {
+            FileName = "cmd.exe",
+            Arguments = $"/d /c \"{codexPath}\" app-server",
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
     }
 
     private static async Task<string> SafeReadStdErrAsync(Task<string> stdErrTask)

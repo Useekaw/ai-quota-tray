@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Serilog;
 
 namespace AiQuotaTray.Usage;
 
@@ -13,6 +14,7 @@ namespace AiQuotaTray.Usage;
 /// </summary>
 public sealed class CopilotUsageProvider : IUsageProvider
 {
+    private static readonly ILogger Logger = Log.ForContext<CopilotUsageProvider>();
     private const string ApiUrl = "https://api.github.com/copilot_internal/user";
 
     // Values a real VS Code + Copilot Chat install would send; the endpoint
@@ -30,6 +32,7 @@ public sealed class CopilotUsageProvider : IUsageProvider
         var token = await ResolveTokenAsync(cancellationToken).ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(token))
         {
+            Logger.Debug("No GitHub token resolved from gh auth token / COPILOT_GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN");
             return UsageResult.Failure(ProviderId, "github-copilot-api",
                 "GitHub token not found. Run: gh auth login (or set GH_TOKEN / COPILOT_GITHUB_TOKEN).");
         }
@@ -52,10 +55,12 @@ public sealed class CopilotUsageProvider : IUsageProvider
         }
 
         var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        Logger.Debug("GitHub Copilot response: HTTP {StatusCode}, {ByteCount} bytes", (int)response.StatusCode, body.Length);
 
         if (!response.IsSuccessStatusCode)
         {
             var message = TryGetErrorMessage(body) ?? $"GitHub Copilot usage request failed with HTTP {(int)response.StatusCode}.";
+            Logger.Warning("GitHub Copilot usage request failed: {Message}\n{Body}", message, body);
             return UsageResult.Failure(ProviderId, "github-copilot-api", message);
         }
 

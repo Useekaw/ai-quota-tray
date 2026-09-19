@@ -1,3 +1,4 @@
+using AiQuotaTray.Logging;
 using AiQuotaTray.Ui;
 using AiQuotaTray.Usage;
 
@@ -30,6 +31,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _startupMenuItem = new ToolStripMenuItem("Start with Windows") { CheckOnClick = true, Checked = StartupManager.IsEnabled() };
         _startupMenuItem.Click += (_, _) => StartupManager.SetEnabled(_startupMenuItem.Checked);
         menu.Items.Add(_startupMenuItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Open diagnostics log", null, (_, _) => AppLog.OpenLogFolder());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
