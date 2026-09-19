@@ -116,6 +116,16 @@ that alone when adding a new provider, fix at the source.
   it natively; a bare `Control` does not. This crashed the whole popup once
   (alpha.6 → alpha.7 fix); Serilog's `Application.ThreadException` hook is
   what surfaced it instead of a silently-dead popup.
+- **Don't use a `TableLayoutPanel` with `Percent` columns inside an `AutoSize`
+  container** (`HeaderRow`, `WindowRow` in `UsageDetailsForm.cs` did, to get a
+  left label + right-aligned label on one row). Percent columns need the
+  table to already have a settled width to divide up; an AutoSize table
+  determines its width *from* its content, which is circular — in practice
+  the columns collapse to content width with no slack, so a right-anchored
+  label never visibly moves. Setting `Anchor` on the label did **not** fix
+  this (tried in alpha.11, still broken on real hardware) — the actual fix
+  was dropping `TableLayoutPanel` for these two rows in favor of a
+  fixed-width `Panel` with each label's `Location` computed by hand.
 
 ## Conventions
 

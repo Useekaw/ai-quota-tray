@@ -173,28 +173,29 @@ internal sealed class UsageDetailsForm : Form
         }
     }
 
+    /// <summary>
+    /// A fixed-width Panel with two manually-positioned labels — not a
+    /// TableLayoutPanel with Percent columns. Percent columns need the
+    /// container to have a settled width to divide up, but an AutoSize
+    /// TableLayoutPanel determines its width *from* its content, which is
+    /// circular: in practice the percent columns collapse to content width
+    /// with no slack left for the "right" column to actually sit on the
+    /// right. (Confirmed on real hardware — an Anchor.Right alone didn't fix it.)
+    /// </summary>
     private Control HeaderRow()
     {
-        var panel = new TableLayoutPanel
-        {
-            Width = FlyoutWidth - (ContentPadding * 2),
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            ColumnCount = 2,
-            RowCount = 1,
-            BackColor = Color.Transparent,
-            Margin = Padding.Empty,
-        };
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+        var contentWidth = FlyoutWidth - (ContentPadding * 2);
+        var title = Label("AI Quota", bold: true, sizeDelta: 3);
+        var timestamp = Label($"Last checked {DateTime.Now:HH:mm}", color: _palette.TextSecondary, sizeDelta: -2);
 
-        panel.Controls.Add(Label("AI Quota", bold: true, sizeDelta: 3), 0, 0);
-        panel.Controls.Add(
-            Label($"Last checked {DateTime.Now:HH:mm}", color: _palette.TextSecondary, sizeDelta: -2,
-                align: ContentAlignment.MiddleRight, anchor: AnchorStyles.Top | AnchorStyles.Right),
-            1, 0);
+        var rowHeight = Math.Max(title.PreferredSize.Height, timestamp.PreferredSize.Height);
+        title.Location = new Point(0, (rowHeight - title.PreferredSize.Height) / 2);
+        timestamp.Location = new Point(contentWidth - timestamp.PreferredSize.Width, (rowHeight - timestamp.PreferredSize.Height) / 2);
 
-        return panel;
+        var row = new Panel { Width = contentWidth, Height = rowHeight, BackColor = Color.Transparent, Margin = Padding.Empty };
+        row.Controls.Add(title);
+        row.Controls.Add(timestamp);
+        return row;
     }
 
     private Control Divider() => new Panel
@@ -209,23 +210,15 @@ internal sealed class UsageDetailsForm : Form
     {
         var contentWidth = FlyoutWidth - (ContentPadding * 2);
 
-        var panel = new TableLayoutPanel
-        {
-            Width = contentWidth,
-            AutoSize = true,
-            AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            ColumnCount = 2,
-            RowCount = 3,
-            BackColor = Color.Transparent,
-            Margin = Padding.Empty,
-        };
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
-        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
+        var titleLabel = Label(window.ResetDescription);
+        var percentLabel = Label($"{window.UsedPercent:0}%");
+        var titleRowHeight = Math.Max(titleLabel.PreferredSize.Height, percentLabel.PreferredSize.Height);
+        titleLabel.Location = new Point(0, (titleRowHeight - titleLabel.PreferredSize.Height) / 2);
+        percentLabel.Location = new Point(contentWidth - percentLabel.PreferredSize.Width, (titleRowHeight - percentLabel.PreferredSize.Height) / 2);
 
-        panel.Controls.Add(Label(window.ResetDescription), 0, 0);
-        panel.Controls.Add(
-            Label($"{window.UsedPercent:0}%", align: ContentAlignment.MiddleRight, anchor: AnchorStyles.Top | AnchorStyles.Right),
-            1, 0);
+        var titleRow = new Panel { Width = contentWidth, Height = titleRowHeight, BackColor = Color.Transparent, Margin = Padding.Empty };
+        titleRow.Controls.Add(titleLabel);
+        titleRow.Controls.Add(percentLabel);
 
         var bar = new UsageBar
         {
@@ -236,15 +229,27 @@ internal sealed class UsageDetailsForm : Form
             TrackColor = _palette.BarTrack,
             Margin = new Padding(0, (int)(4 * UiScale), 0, (int)(4 * UiScale)),
         };
-        panel.SetColumnSpan(bar, 2);
-        panel.Controls.Add(bar, 0, 1);
 
         var detail = window.DisplayValue ?? ResetSummary(window.ResetsAt);
         var detailLabel = Label(detail, color: _palette.TextSecondary, sizeDelta: -1);
-        panel.SetColumnSpan(detailLabel, 2);
-        panel.Controls.Add(detailLabel, 0, 2);
 
-        return panel;
+        // Plain vertical stacking, not a TableLayoutPanel row — see HeaderRow
+        // for why AutoSize + Percent columns doesn't reliably work here.
+        var stack = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Width = contentWidth,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        stack.Controls.Add(titleRow);
+        stack.Controls.Add(bar);
+        stack.Controls.Add(detailLabel);
+        return stack;
     }
 
     private static Color ColorFor(double percent) => percent switch
@@ -279,7 +284,7 @@ internal sealed class UsageDetailsForm : Form
         _ => provider,
     };
 
-    private Label Label(string text, bool bold = false, Color? color = null, int sizeDelta = 0, ContentAlignment align = ContentAlignment.MiddleLeft, AnchorStyles? anchor = null) => new()
+    private Label Label(string text, bool bold = false, Color? color = null, int sizeDelta = 0, ContentAlignment align = ContentAlignment.MiddleLeft) => new()
     {
         Text = text,
         AutoSize = true,
@@ -288,10 +293,6 @@ internal sealed class UsageDetailsForm : Form
         ForeColor = color ?? _palette.TextPrimary,
         BackColor = Color.Transparent,
         TextAlign = align,
-        // AutoSize shrinks the label to its text, so inside a TableLayoutPanel
-        // cell TextAlign alone can't push it to the cell's right edge — an
-        // explicit Anchor is what actually moves the control, not just its text.
-        Anchor = anchor ?? (AnchorStyles.Top | AnchorStyles.Left),
         Margin = Padding.Empty,
     };
 
