@@ -104,16 +104,21 @@ internal sealed class UsageDetailsForm : Form
             _root.SuspendLayout();
             _root.Controls.Clear();
 
-            _root.Controls.Add(Label("AI Quota", bold: true, sizeDelta: 3));
-            _root.Controls.Add(Spacer(12));
+            _root.Controls.Add(HeaderRow());
+            _root.Controls.Add(Spacer(10));
+            _root.Controls.Add(Divider());
+            _root.Controls.Add(Spacer(14));
 
-            foreach (var result in results)
+            for (var i = 0; i < results.Count; i++)
             {
-                RenderProvider(result);
-                _root.Controls.Add(Spacer(21));
+                RenderProvider(results[i]);
+                if (i < results.Count - 1)
+                {
+                    _root.Controls.Add(Spacer(14));
+                    _root.Controls.Add(Divider());
+                    _root.Controls.Add(Spacer(14));
+                }
             }
-
-            _root.Controls.Add(Label($"Last checked {DateTime.Now:HH:mm:ss}", color: _palette.TextSecondary, sizeDelta: -1));
 
             _root.ResumeLayout(true);
             Height = _root.PreferredSize.Height;
@@ -156,10 +161,41 @@ internal sealed class UsageDetailsForm : Form
             {
                 continue;
             }
-            _root.Controls.Add(Spacer(12));
+            _root.Controls.Add(Spacer(10));
             _root.Controls.Add(WindowRow(window));
         }
     }
+
+    private Control HeaderRow()
+    {
+        var panel = new TableLayoutPanel
+        {
+            Width = FlyoutWidth - (ContentPadding * 2),
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+
+        panel.Controls.Add(Label("AI Quota", bold: true, sizeDelta: 3), 0, 0);
+        panel.Controls.Add(
+            Label($"Last checked {DateTime.Now:HH:mm}", color: _palette.TextSecondary, sizeDelta: -2, align: ContentAlignment.MiddleRight),
+            1, 0);
+
+        return panel;
+    }
+
+    private Control Divider() => new Panel
+    {
+        Height = 1,
+        Width = FlyoutWidth - (ContentPadding * 2),
+        BackColor = _palette.Border,
+        Margin = Padding.Empty,
+    };
 
     private Control WindowRow(UsageWindow window)
     {
