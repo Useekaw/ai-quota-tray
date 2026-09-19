@@ -12,17 +12,30 @@ namespace AiQuotaTray.Usage;
 /// </summary>
 public sealed class CodexUsageProvider : IUsageProvider
 {
-    private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(8);
+    private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(12);
     private static readonly TimeSpan ExitGrace = TimeSpan.FromSeconds(3);
+    private const int MaxAttempts = 2;
 
     public string ProviderId => "codex";
 
     public async Task<UsageResult> GetUsageAsync(CancellationToken cancellationToken)
     {
-        RpcSession session;
+        RpcSession session = new(null, null, null, false, string.Empty);
         try
         {
-            session = await RunAppServerAsync(cancellationToken).ConfigureAwait(false);
+            for (var attempt = 1; attempt <= MaxAttempts; attempt++)
+            {
+                session = await RunAppServerAsync(cancellationToken).ConfigureAwait(false);
+
+                // A cold `codex app-server` runs a marketplace refresh before it answers
+                // anything; that can outlast one attempt's timeout. Only retry when we
+                // never got a response at all — a response with a null account is a real
+                // "not logged in", not worth retrying.
+                if (session.AccountResponded || attempt == MaxAttempts)
+                {
+                    break;
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -31,16 +44,24 @@ public sealed class CodexUsageProvider : IUsageProvider
 
         if (session.Limits is null || session.Limits["rateLimits"] is null)
         {
+            var missingCli = session.StdErr.Contains("not recognized", StringComparison.OrdinalIgnoreCase)
+                || session.StdErr.Contains("No such file", StringComparison.OrdinalIgnoreCase)
+                || session.StdErr.Contains("cannot find the file", StringComparison.OrdinalIgnoreCase);
+
+            if (missingCli)
+            {
+                return UsageResult.Failure(ProviderId, "codex-app-server", "Codex CLI is not installed or is not available in PATH.");
+            }
+
+            if (!session.AccountResponded)
+            {
+                return UsageResult.Failure(ProviderId, "codex-app-server",
+                    "Codex app-server did not respond in time (a cold start can be slow — this usually clears up on the next refresh).");
+            }
+
             if (session.Account is null)
             {
-                var missingCli = session.StdErr.Contains("not recognized", StringComparison.OrdinalIgnoreCase)
-                    || session.StdErr.Contains("No such file", StringComparison.OrdinalIgnoreCase)
-                    || session.StdErr.Contains("cannot find the file", StringComparison.OrdinalIgnoreCase);
-
-                var message = missingCli
-                    ? "Codex CLI is not installed or is not available in PATH."
-                    : "Codex CLI is not authenticated. Run: codex login";
-                return UsageResult.Failure(ProviderId, "codex-app-server", message);
+                return UsageResult.Failure(ProviderId, "codex-app-server", "Codex CLI is not authenticated. Run: codex login");
             }
 
             var errorMessage = session.LimitError?["message"]?.GetValue<string?>()
@@ -200,7 +221,7 @@ public sealed class CodexUsageProvider : IUsageProvider
 
         var stdErr = await SafeReadStdErrAsync(stdErrTask).ConfigureAwait(false);
 
-        return new RpcSession(account, limits, limitError, stdErr);
+        return new RpcSession(account, limits, limitError, accountSeen, stdErr);
     }
 
     private static async Task<string> SafeReadStdErrAsync(Task<string> stdErrTask)
@@ -240,5 +261,5 @@ public sealed class CodexUsageProvider : IUsageProvider
         }
     }
 
-    private sealed record RpcSession(JsonNode? Account, JsonNode? Limits, JsonNode? LimitError, string StdErr);
+    private sealed record RpcSession(JsonNode? Account, JsonNode? Limits, JsonNode? LimitError, bool AccountResponded, string StdErr);
 }
