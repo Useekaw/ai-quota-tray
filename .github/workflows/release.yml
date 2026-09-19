@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish self-contained win-x64
+        run: >
+          dotnet publish src/AiQuotaTray -c Release -r win-x64
+          --self-contained -p:PublishSingleFile=true -o publish
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $zip = "AiQuotaTray-${{ github.ref_name }}-win-x64.zip"
+          Compress-Archive -Path publish\* -DestinationPath $zip
+          echo "ZIP_PATH=$zip" >> $env:GITHUB_ENV
+
+      - name: Determine prerelease flag
+        shell: pwsh
+        run: |
+          $isPre = "${{ github.ref_name }}" -match '-(alpha|beta|rc)'
+          echo "PRERELEASE=$isPre" >> $env:GITHUB_ENV
+
+      # Uses the gh CLI preinstalled on GitHub-hosted runners instead of a
+      # third-party release action, to keep this workflow's trust surface
+      # limited to actions/* and the GitHub CLI itself.
+      - name: Create GitHub release
+        shell: pwsh
+        run: |
+          $args = @(
+            "release", "create", "${{ github.ref_name }}",
+            "$env:ZIP_PATH",
+            "--title", "${{ github.ref_name }}",
+            "--generate-notes"
+          )
+          if ($env:PRERELEASE -eq "True") { $args += "--prerelease" }
+          gh @args
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
