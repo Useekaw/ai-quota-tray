@@ -1,13 +1,33 @@
+using System.Drawing.Text;
 using AiQuotaTray.Usage;
 
 namespace AiQuotaTray.Ui;
 
-/// <summary>Borderless flyout showing a detailed breakdown for every provider, opened next to the tray icon.</summary>
+/// <summary>
+/// Borderless flyout showing a detailed breakdown for every provider, opened
+/// next to the tray icon. Styled to match native Windows 11 flyouts (Volume,
+/// Wi-Fi, Battery): DWM-rounded corners, dark/light theme colors read from
+/// the registry, and a best-effort acrylic backdrop.
+/// </summary>
 internal sealed class UsageDetailsForm : Form
 {
-    private const int FlyoutWidth = 320;
+    private const int FlyoutWidth = 340;
+    private const int ContentPadding = 16;
+
+    // Quick escape hatch: acrylic-over-WinForms is inherently a bit of a hack
+    // (transparency-key compositing, not a first-class WinForms feature) and
+    // this was never run on a real Windows 11 box during development. If it
+    // ever renders oddly on some GPU/driver combination, this environment
+    // variable falls back to the always-correct flat themed background
+    // without needing a code change.
+    private static readonly bool AcrylicDisabledByUser =
+        Environment.GetEnvironmentVariable("AIQUOTATRAY_DISABLE_ACRYLIC") == "1";
+
+    private static readonly string UiFontFamily = ResolveUiFontFamily();
 
     private readonly FlowLayoutPanel _root;
+    private ThemePalette _palette = ThemePalette.Resolve();
+    private bool _acrylicActive;
 
     public UsageDetailsForm()
     {
@@ -15,12 +35,10 @@ internal sealed class UsageDetailsForm : Form
         StartPosition = FormStartPosition.Manual;
         ShowInTaskbar = false;
         TopMost = true;
-        BackColor = Color.White;
-        Padding = new Padding(1);
         AutoSize = false;
         Width = FlyoutWidth;
+        DoubleBuffered = true;
 
-        var border = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(220, 220, 220), Padding = new Padding(1) };
         _root = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
@@ -28,13 +46,52 @@ internal sealed class UsageDetailsForm : Form
             WrapContents = false,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            BackColor = Color.White,
-            Padding = new Padding(12),
+            Padding = new Padding(ContentPadding),
+            BackColor = Color.Transparent,
         };
-        border.Controls.Add(_root);
-        Controls.Add(border);
+        Controls.Add(_root);
 
         Deactivate += (_, _) => Hide();
+        Paint += (_, e) => DrawBorder(e.Graphics);
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        ApplyChrome();
+    }
+
+    /// <summary>Re-read the theme and reapply DWM chrome — called on every open, since the user can flip Windows theme while the popup is closed.</summary>
+    private void ApplyChrome()
+    {
+        _palette = ThemePalette.Resolve();
+        Win11Window.ApplyFlyoutChrome(Handle, _palette.IsDark);
+
+        _acrylicActive = !AcrylicDisabledByUser && Win11Window.TryApplyAcrylicBackdrop(Handle);
+        if (_acrylicActive)
+        {
+            // The classic "glass sheet" trick: DWM only composites the acrylic
+            // material through pixels matching TransparencyKey, so the form and
+            // every non-drawing child control paint in that exact key color
+            // (or literally Color.Transparent, which WinForms resolves back to
+            // whatever the parent last painted — ending up as the same key).
+            var glassKey = Color.FromArgb(1, 1, 2);
+            BackColor = glassKey;
+            TransparencyKey = glassKey;
+        }
+        else
+        {
+            BackColor = _palette.WindowBackground;
+            TransparencyKey = Color.Empty;
+        }
+
+        _root.BackColor = _acrylicActive ? Color.Transparent : _palette.WindowBackground;
+    }
+
+    private void DrawBorder(Graphics g)
+    {
+        using var pen = new Pen(_palette.Border, 1f);
+        g.DrawRectangle(pen, new Rectangle(0, 0, Width - 1, Height - 1));
     }
 
     public void Render(IReadOnlyList<UsageResult> results)
@@ -42,19 +99,20 @@ internal sealed class UsageDetailsForm : Form
         _root.SuspendLayout();
         _root.Controls.Clear();
 
-        _root.Controls.Add(Label("AI Quota", bold: true, sizeDelta: 2));
-        _root.Controls.Add(Spacer());
+        _root.Controls.Add(Label("AI Quota", bold: true, sizeDelta: 3));
+        _root.Controls.Add(Spacer(8));
 
         foreach (var result in results)
         {
             RenderProvider(result);
-            _root.Controls.Add(Spacer());
+            _root.Controls.Add(Spacer(14));
         }
 
-        _root.Controls.Add(Label($"Last checked {DateTime.Now:HH:mm:ss}", bold: false, color: Color.Gray, sizeDelta: -1));
+        _root.Controls.Add(Label($"Last checked {DateTime.Now:HH:mm:ss}", color: _palette.TextSecondary, sizeDelta: -1));
 
         _root.ResumeLayout(true);
-        Height = _root.PreferredSize.Height + 4;
+        Height = _root.PreferredSize.Height;
+        Invalidate();
     }
 
     private void RenderProvider(UsageResult result)
@@ -63,13 +121,14 @@ internal sealed class UsageDetailsForm : Form
 
         if (!result.Success)
         {
-            _root.Controls.Add(Label(result.ErrorMessage ?? "Unknown error", color: Color.FromArgb(198, 40, 40)));
+            _root.Controls.Add(Spacer(2));
+            _root.Controls.Add(Label(result.ErrorMessage ?? "Unknown error", color: Color.FromArgb(224, 90, 90)));
             return;
         }
 
         if (result.AccountLabel is not null)
         {
-            _root.Controls.Add(Label(result.AccountLabel, color: Color.DimGray, sizeDelta: -1));
+            _root.Controls.Add(Label(result.AccountLabel, color: _palette.TextSecondary, sizeDelta: -1));
         }
 
         foreach (var window in new[] { result.Primary, result.Secondary, result.Tertiary })
@@ -78,18 +137,24 @@ internal sealed class UsageDetailsForm : Form
             {
                 continue;
             }
+            _root.Controls.Add(Spacer(8));
             _root.Controls.Add(WindowRow(window));
         }
     }
 
     private Control WindowRow(UsageWindow window)
     {
+        var contentWidth = FlyoutWidth - (ContentPadding * 2);
+
         var panel = new TableLayoutPanel
         {
-            Width = FlyoutWidth - 30,
+            Width = contentWidth,
             AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 2,
             RowCount = 3,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
         };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 70));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 30));
@@ -97,24 +162,31 @@ internal sealed class UsageDetailsForm : Form
         panel.Controls.Add(Label(window.ResetDescription), 0, 0);
         panel.Controls.Add(Label($"{window.UsedPercent:0}%", align: ContentAlignment.MiddleRight), 1, 0);
 
-        var bar = new ProgressBar
+        var bar = new UsageBar
         {
-            Minimum = 0,
-            Maximum = 100,
-            Value = Math.Clamp((int)Math.Round(window.UsedPercent), 0, 100),
-            Width = panel.Width,
-            Height = 10,
+            Width = contentWidth,
+            Percent = window.UsedPercent,
+            FillColor = ColorFor(window.UsedPercent),
+            TrackColor = _palette.BarTrack,
+            Margin = new Padding(0, 4, 0, 4),
         };
         panel.SetColumnSpan(bar, 2);
         panel.Controls.Add(bar, 0, 1);
 
         var detail = window.DisplayValue ?? ResetSummary(window.ResetsAt);
-        var detailLabel = Label(detail, color: Color.DimGray, sizeDelta: -1);
+        var detailLabel = Label(detail, color: _palette.TextSecondary, sizeDelta: -1);
         panel.SetColumnSpan(detailLabel, 2);
         panel.Controls.Add(detailLabel, 0, 2);
 
         return panel;
     }
+
+    private static Color ColorFor(double percent) => percent switch
+    {
+        < 70 => Color.FromArgb(96, 189, 104),
+        < 90 => Color.FromArgb(249, 183, 61),
+        _ => Color.FromArgb(224, 90, 90),
+    };
 
     private static string ResetSummary(DateTimeOffset? resetsAt)
     {
@@ -141,22 +213,48 @@ internal sealed class UsageDetailsForm : Form
         _ => provider,
     };
 
-    private static Label Label(string text, bool bold = false, Color? color = null, int sizeDelta = 0, ContentAlignment align = ContentAlignment.MiddleLeft) => new()
+    private Label Label(string text, bool bold = false, Color? color = null, int sizeDelta = 0, ContentAlignment align = ContentAlignment.MiddleLeft) => new()
     {
         Text = text,
         AutoSize = true,
-        Width = FlyoutWidth - 30,
-        Font = new Font(SystemFonts.MessageBoxFont ?? SystemFonts.DefaultFont, bold ? FontStyle.Bold : FontStyle.Regular)
-            .Adjust(sizeDelta),
-        ForeColor = color ?? Color.Black,
+        MaximumSize = new Size(FlyoutWidth - (ContentPadding * 2), 0),
+        Font = new Font(UiFontFamily, 9f + sizeDelta, bold ? FontStyle.Bold : FontStyle.Regular),
+        ForeColor = color ?? _palette.TextPrimary,
+        BackColor = Color.Transparent,
+        // Simulated-transparent labels lose ClearType's assumption of a solid
+        // background; GDI+ antialiasing looks correct over the acrylic/glass-key
+        // background where ClearType would otherwise fringe.
+        UseCompatibleTextRendering = _acrylicActive,
         TextAlign = align,
+        Margin = Padding.Empty,
     };
 
-    private static Control Spacer() => new Panel { Height = 6, Width = 1 };
+    private static Control Spacer(int height) => new Panel { Height = height, Width = 1, BackColor = Color.Transparent, Margin = Padding.Empty };
+
+    /// <summary>Windows 11 ships "Segoe UI Variable Text" as the default UI font; older Windows falls back to plain Segoe UI.</summary>
+    private static string ResolveUiFontFamily()
+    {
+        const string preferred = "Segoe UI Variable Text";
+        try
+        {
+            using var installed = new InstalledFontCollection();
+            if (installed.Families.Any(f => f.Name == preferred))
+            {
+                return preferred;
+            }
+        }
+        catch
+        {
+            // Fall through to the safe default.
+        }
+        return "Segoe UI";
+    }
 
     /// <summary>Positions the flyout above/right of the tray icon, flipping so it always stays on-screen.</summary>
     public void ShowNear(Rectangle iconBounds)
     {
+        ApplyChrome();
+
         var workingArea = Screen.FromRectangle(iconBounds).WorkingArea;
 
         var x = Math.Min(iconBounds.Right - FlyoutWidth, workingArea.Right - FlyoutWidth);
@@ -171,17 +269,5 @@ internal sealed class UsageDetailsForm : Form
         Location = new Point(x, y);
         Show();
         Activate();
-    }
-}
-
-internal static class FontExtensions
-{
-    public static Font Adjust(this Font font, int sizeDelta)
-    {
-        if (sizeDelta == 0)
-        {
-            return font;
-        }
-        return new Font(font.FontFamily, Math.Max(6, font.Size + sizeDelta), font.Style);
     }
 }
