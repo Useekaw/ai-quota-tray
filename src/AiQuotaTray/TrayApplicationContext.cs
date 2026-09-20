@@ -128,21 +128,41 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _notifyIcon.Text = Truncate(BuildTooltip(codex, copilot), 127);
 
         _overlay.SnapToTaskbar();
-        _overlay.SetText(BuildOverlayText(codexSessionPercent, copilotPercent));
+        _overlay.SetSegments(BuildOverlaySegments(codexSessionPercent, codexWeeklyPercent, copilotPercent));
     }
 
-    private static string BuildOverlayText(double? codexPercent, double? copilotPercent)
+    private static IReadOnlyList<OverlaySegment> BuildOverlaySegments(double? codexSessionPercent, double? codexWeeklyPercent, double? copilotPercent)
     {
-        var parts = new List<string>();
-        if (codexPercent is { } cx)
+        var segments = new List<OverlaySegment>();
+
+        if (codexSessionPercent is not null || codexWeeklyPercent is not null)
         {
-            parts.Add($"Codex {cx:0}%");
+            segments.Add(new OverlaySegment("Codex "));
+            if (codexSessionPercent is { } session)
+            {
+                segments.Add(new OverlaySegment($"{session:0}%", UsageColors.ForPercent(session)));
+            }
+            if (codexWeeklyPercent is { } weekly)
+            {
+                if (codexSessionPercent is not null)
+                {
+                    segments.Add(new OverlaySegment("|"));
+                }
+                segments.Add(new OverlaySegment($"{weekly:0}%", UsageColors.ForPercent(weekly)));
+            }
         }
-        if (copilotPercent is { } cp)
+
+        if (copilotPercent is { } copilot)
         {
-            parts.Add($"Copilot {cp:0}%");
+            if (segments.Count > 0)
+            {
+                segments.Add(new OverlaySegment(" · "));
+            }
+            segments.Add(new OverlaySegment("Copilot "));
+            segments.Add(new OverlaySegment($"{copilot:0}%", UsageColors.ForPercent(copilot)));
         }
-        return string.Join("   ", parts);
+
+        return segments;
     }
 
     private static double? WindowPercent(UsageResult? result, Func<UsageResult, UsageWindow?> select)

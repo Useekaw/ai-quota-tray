@@ -225,7 +225,7 @@ internal sealed class UsageDetailsForm : Form
             Width = contentWidth,
             Height = (int)(6 * UiScale),
             Percent = window.UsedPercent,
-            FillColor = ColorFor(window.UsedPercent),
+            FillColor = UsageColors.ForPercent(window.UsedPercent),
             TrackColor = _palette.BarTrack,
             Margin = new Padding(0, (int)(4 * UiScale), 0, (int)(4 * UiScale)),
         };
@@ -251,13 +251,6 @@ internal sealed class UsageDetailsForm : Form
         stack.Controls.Add(detailLabel);
         return stack;
     }
-
-    private static Color ColorFor(double percent) => percent switch
-    {
-        < 70 => Color.FromArgb(96, 189, 104),
-        < 90 => Color.FromArgb(249, 183, 61),
-        _ => Color.FromArgb(224, 90, 90),
-    };
 
     private static string ResetSummary(DateTimeOffset? resetsAt)
     {
