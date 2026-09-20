@@ -1,3 +1,4 @@
+using AiQuotaTray.Configuration;
 using AiQuotaTray.Logging;
 using AiQuotaTray.Ui;
 using AiQuotaTray.Usage;
@@ -7,26 +8,28 @@ namespace AiQuotaTray;
 /// <summary>Owns the tray icon, its context menu, the polling timer, and the details flyout.</summary>
 internal sealed class TrayApplicationContext : ApplicationContext
 {
-    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(5);
-
     private readonly IReadOnlyList<IUsageProvider> _providers =
     [
         new CodexUsageProvider(),
         new CopilotUsageProvider(),
     ];
 
+    private readonly bool _overlayEnabled;
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _contextMenu;
     private readonly System.Windows.Forms.Timer _refreshTimer;
     private readonly ToolStripMenuItem _startupMenuItem;
     private readonly UsageDetailsForm _detailsForm = new();
-    private readonly TaskbarOverlayForm _overlay = new();
+    private readonly TaskbarOverlayForm _overlay;
 
     private IReadOnlyList<UsageResult> _lastResults = [];
     private bool _refreshing;
 
-    public TrayApplicationContext()
+    public TrayApplicationContext(AppConfig config)
     {
+        _overlayEnabled = config.OverlayEnabled;
+        _overlay = new TaskbarOverlayForm(config.OverlayFontSize);
+
         var menu = new ContextMenuStrip();
         menu.Items.Add("Refresh now", null, async (_, _) => await RefreshAsync());
         menu.Items.Add(new ToolStripSeparator());
@@ -35,6 +38,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(_startupMenuItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Open diagnostics log", null, (_, _) => AppLog.OpenLogFolder());
+        menu.Items.Add("Open config file", null, (_, _) => AppConfigStore.OpenConfigFile());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
@@ -48,10 +52,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
         _notifyIcon.MouseClick += OnTrayIconClick;
 
-        _overlay.SnapToTaskbar();
-        _overlay.Show();
+        if (_overlayEnabled)
+        {
+            _overlay.SnapToTaskbar();
+            _overlay.Show();
+        }
 
-        _refreshTimer = new System.Windows.Forms.Timer { Interval = (int)RefreshInterval.TotalMilliseconds };
+        _refreshTimer = new System.Windows.Forms.Timer { Interval = (int)TimeSpan.FromMinutes(config.RefreshIntervalMinutes).TotalMilliseconds };
         _refreshTimer.Tick += async (_, _) => await RefreshAsync();
         _refreshTimer.Start();
 
@@ -147,8 +154,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _notifyIcon.Text = Truncate(BuildTooltip(codex, copilot), 127);
 
-        _overlay.SnapToTaskbar();
-        _overlay.SetSegments(BuildOverlaySegments(codexSessionPercent, codexWeeklyPercent, copilotPercent));
+        if (_overlayEnabled)
+        {
+            _overlay.SnapToTaskbar();
+            _overlay.SetSegments(BuildOverlaySegments(codexSessionPercent, codexWeeklyPercent, copilotPercent));
+        }
     }
 
     private static IReadOnlyList<OverlaySegment> BuildOverlaySegments(double? codexSessionPercent, double? codexWeeklyPercent, double? copilotPercent)

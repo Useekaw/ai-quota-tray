@@ -26,6 +26,29 @@ The tray icon is split into two color-coded halves (green / amber / red per
 provider, by highest used-window percentage). Left-click opens a flyout with
 per-window percentages, progress bars, and reset times.
 
+A second, always-visible readout is glued to the taskbar's bottom-left corner
+(over the Start button): a transparent, click-through overlay showing
+`Codex 42% | 17% · Copilot 8%` — Windows gives third-party apps no way to dock
+a real taskbar widget, so this fakes one.
+
+## Configuration
+
+Settings are read from `%LocalAppData%\AiQuotaTray\config.json`, created with
+defaults on first run (tray menu → "Open config file" opens it directly):
+
+```json
+{
+  "RefreshIntervalMinutes": 5,
+  "OverlayFontSize": 10.5,
+  "OverlayEnabled": true,
+  "LogLevel": "Information"
+}
+```
+
+`LogLevel` is any [Serilog level](https://github.com/serilog/serilog/wiki/Configuration-Basics#minimum-level)
+name (`Verbose`/`Debug`/`Information`/`Warning`/`Error`/`Fatal`). Changes take
+effect on the next app start.
+
 ## Requirements
 
 - Windows 11.
@@ -65,8 +88,9 @@ src/AiQuotaTray/
   Program.cs                 entry point, single-instance guard
   TrayApplicationContext.cs  tray icon, context menu, polling loop
   StartupManager.cs          "Start with Windows" registry toggle
+  Configuration/             config.json model + load/save
   Usage/                     provider abstraction + Codex/Copilot implementations
-  Ui/                        tray icon rendering + details flyout
+  Ui/                        tray icon rendering, details flyout, taskbar overlay
 ```
 
 ## Known limitations

@@ -1,3 +1,4 @@
+using AiQuotaTray.Configuration;
 using AiQuotaTray.Logging;
 using Serilog;
 
@@ -8,7 +9,13 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        AppLog.Initialize();
+        var (config, configError) = AppConfigStore.Load();
+        AppLog.Initialize(config.LogLevel);
+        if (configError is not null)
+        {
+            Log.Warning("{ConfigError}", configError);
+        }
+
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             Log.Fatal(e.ExceptionObject as Exception, "Unhandled exception (terminating: {IsTerminating})", e.IsTerminating);
         Application.ThreadException += (_, e) => Log.Error(e.Exception, "Unhandled UI thread exception");
@@ -24,7 +31,7 @@ internal static class Program
 
             Log.Information("AiQuotaTray starting");
             ApplicationConfiguration.Initialize();
-            Application.Run(new TrayApplicationContext());
+            Application.Run(new TrayApplicationContext(config));
         }
         finally
         {

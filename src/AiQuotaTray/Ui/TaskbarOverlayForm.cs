@@ -21,10 +21,6 @@ internal sealed class TaskbarOverlayForm : Form
     private const int MaxWidth = 320;
     private const int HorizontalPadding = 10;
 
-    // The app's ambient default font is Segoe UI 9pt; ~17% larger reads
-    // clearly against a busy taskbar/wallpaper without dwarfing the tray icons.
-    private static readonly Font TextFont = new("Segoe UI", 10.5f);
-
     private const TextFormatFlags SegmentFormat =
         TextFormatFlags.NoPadding | TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix;
 
@@ -48,7 +44,7 @@ internal sealed class TaskbarOverlayForm : Form
     // key — every pixel this color becomes see-through.
     private static readonly Color KeyColor = Color.FromArgb(1, 2, 3);
 
-    public TaskbarOverlayForm()
+    public TaskbarOverlayForm(float fontSize)
     {
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
@@ -57,7 +53,7 @@ internal sealed class TaskbarOverlayForm : Form
         DoubleBuffered = true;
         BackColor = KeyColor;
         TransparencyKey = KeyColor;
-        Font = TextFont;
+        Font = new Font("Segoe UI", fontSize);
         Width = MinWidth;
 
         _keepOnTopTimer = new System.Windows.Forms.Timer { Interval = 250 };
@@ -160,6 +156,7 @@ internal sealed class TaskbarOverlayForm : Form
         if (disposing)
         {
             _keepOnTopTimer.Dispose();
+            Font.Dispose();
         }
         base.Dispose(disposing);
     }
