@@ -19,6 +19,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly System.Windows.Forms.Timer _refreshTimer;
     private readonly ToolStripMenuItem _startupMenuItem;
     private readonly UsageDetailsForm _detailsForm = new();
+    private readonly TaskbarOverlayForm _overlay = new();
 
     private IReadOnlyList<UsageResult> _lastResults = [];
     private bool _refreshing;
@@ -44,6 +45,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
             ContextMenuStrip = menu,
         };
         _notifyIcon.MouseClick += OnTrayIconClick;
+
+        _overlay.SnapToTaskbar();
+        _overlay.Show();
 
         _refreshTimer = new System.Windows.Forms.Timer { Interval = (int)RefreshInterval.TotalMilliseconds };
         _refreshTimer.Tick += async (_, _) => await RefreshAsync();
@@ -122,6 +126,23 @@ internal sealed class TrayApplicationContext : ApplicationContext
         oldIcon?.Dispose();
 
         _notifyIcon.Text = Truncate(BuildTooltip(codex, copilot), 127);
+
+        _overlay.SnapToTaskbar();
+        _overlay.SetText(BuildOverlayText(codexSessionPercent, copilotPercent));
+    }
+
+    private static string BuildOverlayText(double? codexPercent, double? copilotPercent)
+    {
+        var parts = new List<string>();
+        if (codexPercent is { } cx)
+        {
+            parts.Add($"Codex {cx:0}%");
+        }
+        if (copilotPercent is { } cp)
+        {
+            parts.Add($"Copilot {cp:0}%");
+        }
+        return string.Join("   ", parts);
     }
 
     private static double? WindowPercent(UsageResult? result, Func<UsageResult, UsageWindow?> select)
@@ -183,6 +204,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
             _detailsForm.Dispose();
+            _overlay.Dispose();
         }
         base.Dispose(disposing);
     }
