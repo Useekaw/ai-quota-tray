@@ -60,7 +60,7 @@ internal sealed class TaskbarOverlayForm : Form
         Font = TextFont;
         Width = MinWidth;
 
-        _keepOnTopTimer = new System.Windows.Forms.Timer { Interval = 2000 };
+        _keepOnTopTimer = new System.Windows.Forms.Timer { Interval = 250 };
         _keepOnTopTimer.Tick += (_, _) => KeepOnTop();
         _keepOnTopTimer.Start();
     }

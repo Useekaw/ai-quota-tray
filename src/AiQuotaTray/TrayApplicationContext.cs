@@ -16,6 +16,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     ];
 
     private readonly NotifyIcon _notifyIcon;
+    private readonly ContextMenuStrip _contextMenu;
     private readonly System.Windows.Forms.Timer _refreshTimer;
     private readonly ToolStripMenuItem _startupMenuItem;
     private readonly UsageDetailsForm _detailsForm = new();
@@ -37,12 +38,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
+        _contextMenu = menu;
+
         _notifyIcon = new NotifyIcon
         {
             Icon = TrayIconRenderer.Render(null, null, null),
             Text = "AI Quota Tray — checking…",
             Visible = true,
-            ContextMenuStrip = menu,
         };
         _notifyIcon.MouseClick += OnTrayIconClick;
 
@@ -58,6 +60,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void OnTrayIconClick(object? sender, MouseEventArgs e)
     {
+        if (e.Button == MouseButtons.Right)
+        {
+            ShowContextMenu();
+            return;
+        }
+
         if (e.Button != MouseButtons.Left)
         {
             return;
@@ -71,6 +79,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _detailsForm.Render(_lastResults);
         _detailsForm.ShowNear(GetTrayIconBounds());
+    }
+
+    private void ShowContextMenu()
+    {
+        // The default NotifyIcon.ContextMenuStrip auto-show anchors purely to
+        // the cursor position, which can open the menu low enough to run
+        // partly behind the taskbar. Anchoring its bottom edge to the
+        // taskbar's actual top and forcing it to grow upward guarantees it
+        // never overlaps the taskbar, regardless of where on the icon was clicked.
+        var cursor = Cursor.Position;
+        var anchorY = TaskbarInfo.GetBounds()?.Top ?? cursor.Y;
+        _contextMenu.Show(new Point(cursor.X, anchorY), ToolStripDropDownDirection.AboveLeft);
     }
 
     private async Task RefreshAsync()
@@ -146,7 +166,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             {
                 if (codexSessionPercent is not null)
                 {
-                    segments.Add(new OverlaySegment("|"));
+                    segments.Add(new OverlaySegment(" | "));
                 }
                 segments.Add(new OverlaySegment($"{weekly:0}%", UsageColors.ForPercent(weekly)));
             }
